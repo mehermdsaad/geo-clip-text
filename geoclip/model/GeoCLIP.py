@@ -3,9 +3,9 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
-from .image_encoder import ImageEncoder
-from .location_encoder import LocationEncoder
-from .misc import load_gps_data, file_dir
+from image_encoder import ImageEncoder
+from location_encoder import LocationEncoder
+from misc import load_gps_data, file_dir
 
 from PIL import Image
 from torchvision.transforms import ToPILImage
