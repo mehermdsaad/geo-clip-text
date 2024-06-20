@@ -16,6 +16,7 @@ class GeoCLIP(nn.Module):
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
         self.image_encoder = ImageEncoder()
         self.location_encoder = LocationEncoder()
+        self.CLIP = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
 
         self.gps_gallery = load_gps_data(os.path.join(file_dir, "gps_gallery", "coordinates_100K.csv"))
         self._initialize_gps_queue(queue_size)
@@ -64,12 +65,13 @@ class GeoCLIP(nn.Module):
     def get_gps_queue(self):
         return self.gps_queue.t()
                                              
-    def forward(self, image, location):
+    def forward(self, image, location, text=None):
         """ GeoCLIP's forward pass
 
         Args:
             image (torch.Tensor): Image tensor of shape (n, 3, 224, 224)
             location (torch.Tensor): GPS location tensor of shape (m, 2)
+            text (torch.Tensor): Text tensor of shape (n, sequence_length)
 
         Returns:
             logits_per_image (torch.Tensor): Logits per image of shape (n, m)
@@ -80,6 +82,10 @@ class GeoCLIP(nn.Module):
         location_features = self.location_encoder(location)
         logit_scale = self.logit_scale.exp()
         
+        if text is not None:
+            text_features = self.CLIP.get_text_features(text)
+            image_features = image_features + text_features
+            
         # Normalize features
         image_features = F.normalize(image_features, dim=1)
         location_features = F.normalize(location_features, dim=1)
@@ -90,7 +96,7 @@ class GeoCLIP(nn.Module):
         return logits_per_image
 
     @torch.no_grad()
-    def predict(self, image_path, top_k):
+    def predict(self, image_path, top_k, text=None):
         """ Given an image, predict the top k GPS coordinates
 
         Args:
@@ -106,8 +112,13 @@ class GeoCLIP(nn.Module):
         image = image.to(self.device)
 
         gps_gallery = self.gps_gallery.to(self.device)
-
-        logits_per_image = self.forward(image, gps_gallery)
+        
+        if text is not None:
+            inputs = self.CLIP.tokenizer(text, return_tensors="pt", padding=True, truncation=True).to(self.device)
+            logits_per_image = self.forward(image, gps_gallery, inputs["input_ids"])
+        else:
+            logits_per_image = self.forward(image, gps_gallery)
+            
         probs_per_image = logits_per_image.softmax(dim=-1).cpu()
 
         # Get top k predictions
